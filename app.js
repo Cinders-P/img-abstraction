@@ -7,9 +7,9 @@ var MongoClient = require('mongodb').MongoClient;
 
 app.get('/search/:term', function(req, response) {
     if (!req.query.offset)
-        req.query.offset = 0;
-    var page = 10 * req.query.offset + 1;
-    var url = 'https://www.googleapis.com/customsearch/v1?q=' + req.params.term + '&cx=' + config.google.cseID + '&searchType=image&start=' + page + '&fields=items(image(contextLink%2CthumbnailLink)%2Clink%2Cpagemap%2Ctitle)&key=' + config.google.apiKey;
+        req.query.offset = 1;
+    var page = 10 * (req.query.offset -1) + 1;
+    var url = 'https://www.googleapis.com/customsearch/v1?q=' + req.params.term.replace(" ", "%20") + '&cx=' + config.google.cseID + '&searchType=image&start=' + page + '&fields=items(image(contextLink%2CthumbnailLink)%2Clink%2Cpagemap%2Ctitle)&key=' + config.google.apiKey;
 
     https.get(url, (res) => {
         var chunks = "";
@@ -19,26 +19,25 @@ app.get('/search/:term', function(req, response) {
         });
         res.on("end", () => {
             console.log("HTTP request ended. Sending JSON.");
-            response.send(JSON.parse(chunks));
+            response.send(JSON.parse(chunks).items);
         }).on('error', (e) => {
             console.log(`Got error: ${e.message}`);
         });
     });
 
     //could be saved in a local file too, since there are only 10 entries
-    //used MongoDB for practice
     MongoClient.connect(config.db.host, function(err, db) {
         if (err) throw err;
         var p1 = new Promise((resolve, reject) => {
             db.collection('searches').update({}, {
                 $inc: {
-                    "id": 1
+                    "index": 1
                 }
             }, {
                 multi: true
             }, () => {
                 db.collection('searches').deleteOne({
-                    "id": {
+                    "index": {
                         $eq: 10
                     }
                 }, () => {
@@ -67,14 +66,13 @@ app.get('/search/:term', function(req, response) {
 
 app.get('/recent', (req, response) => {
     MongoClient.connect(config.db.host, function(err, db) {
-        db.collection('searches').find({
-            index: {$exists: true}
-        }, {
+        db.collection('searches').find({}, {
 			"_id": 0,
             "query": 1,
             "time": 1
         }).sort({index:1}).toArray((err, items) => {
-            response.send(items));
+			// response.set('Content-Type', 'application/json');
+            response.json(items);
             db.close();
             response.end();
         });
@@ -82,10 +80,11 @@ app.get('/recent', (req, response) => {
 });
 
 app.use(express.static('public'));
-app.get('/', () => {
+app.get('/', (req, response) => {
     //homepage
+	response.sendFile(path.join(__dirname + '/public/index.html'));
 });
 
 app.listen(process.env.PORT || 3000, function() {
-    console.log("Image abstraction layer started on port 3000.");
+    console.log("Started on port 3000.");
 });
